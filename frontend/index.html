@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Tara Finance Agent</title>
+	<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+	<div class="app-shell">
+		<header>
+			<h1>Tara Finance Research Agent</h1>
+			<p>Ask Tara questions about your financial data. The UI sends your prompt to the server, which executes the agent and returns grounded results.</p>
+		</header>
+
+		<section class="chat-panel">
+			<div id="conversation" class="conversation"></div>
+			<form id="promptForm" class="prompt-form">
+				<textarea id="promptInput" placeholder="Ask Tara something like: What was the total realized return last quarter?" rows="4"></textarea>
+				<div class="actions">
+					<button type="submit">Send</button>
+					<span id="status" class="status"></span>
+				</div>
+			</form>
+		</section>
+	</div>
+	<script src="app.js"></script>
+</body>
+</html>

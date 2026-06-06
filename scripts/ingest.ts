@@ -156,23 +156,15 @@ async function main(): Promise<void> {
 			await client.query(
 				`
 					INSERT INTO holdings (
-						id,
 						fund_id,
 						fund_name,
 						units,
 						purchase_date,
 						purchase_nav
 					)
-					VALUES ($1, $2, $3, $4::numeric, $5, $6::numeric)
-					ON CONFLICT (id) DO UPDATE
-					SET fund_id = EXCLUDED.fund_id,
-						fund_name = EXCLUDED.fund_name,
-						units = EXCLUDED.units,
-						purchase_date = EXCLUDED.purchase_date,
-						purchase_nav = EXCLUDED.purchase_nav
+					VALUES ($1, $2, $3::numeric, $4, $5::numeric)
 				`,
 				[
-					holding.id,
 					holding.fundId,
 					holding.fundName,
 					holding.units,
@@ -389,7 +381,7 @@ function normalizeFundNavEntry(entry: unknown, fundId: string, context: string):
 		return {
 			fundId,
 			date: coerceDate(entry.date, `${context}.date`),
-			nav: coerceMoney(entry.nav, `${context}.nav`).toFixed(6),
+			nav: coerceMoney(entry.nav ?? entry.value, `${context}.nav`).toFixed(6),
 		};
 	}
 
@@ -542,8 +534,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isDateNavRecord(value: unknown): value is { date: unknown; nav: unknown } {
-	return isPlainObject(value) && 'date' in value && 'nav' in value;
+function isDateNavRecord(value: unknown): value is { date: unknown; nav?: unknown; value?: unknown } {
+	return isPlainObject(value) && 'date' in value && ('nav' in value || 'value' in value);
 }
 
 function isDateLike(value: string): boolean {

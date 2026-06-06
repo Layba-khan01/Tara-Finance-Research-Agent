@@ -124,7 +124,7 @@ async function runVector(vector: TestVector): Promise<string> {
 
 	for (const turn of vector.turns) {
 		history = [...history, { role: 'user', content: turn }];
-		const response = await taraAgent.generate({ messages: history });
+		const response = await taraAgent.generate(history);
 		lastResponseText = extractResponseText(response);
 		history = [...history, { role: 'assistant', content: lastResponseText }];
 	}

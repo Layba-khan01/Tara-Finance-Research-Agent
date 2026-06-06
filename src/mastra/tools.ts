@@ -38,10 +38,8 @@ type QueryResult = {
 
 type ToolOutput = Record<string, unknown>;
 
-const databaseUrl = resolveDatabaseUrl();
-const pool = new Pool({
-	connectionString: databaseUrl,
-});
+const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
+const pool = databaseUrl.length > 0 ? new Pool({ connectionString: databaseUrl }) : null;
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD');
 
@@ -522,6 +520,9 @@ async function getPortfolioRealizedReturn(inputData: PortfolioRealizedReturnInpu
 }
 
 async function runQuery(text: string, values: string[]): Promise<QueryResult> {
+	if (!pool) {
+		throw new Error('DATABASE_URL is required to execute PostgreSQL queries. Set DATABASE_URL and restart the service.');
+	}
 	const client = await pool.connect();
 	try {
 		const result = await client.query(text, values);
