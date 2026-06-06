@@ -356,9 +356,9 @@ async function getFundPeriodReturn(inputData: FundPeriodReturnInput): Promise<To
 		};
 	}
 
-	const startNav = toNumber(startPoint.nav, 'start NAV');
-	const endNav = toNumber(endPoint.nav, 'end NAV');
-	if (startNav <= 0) {
+	const startNavCents = decimalToCents(startPoint.nav);
+	const endNavCents = decimalToCents(endPoint.nav);
+	if (startNavCents <= 0n) {
 		return {
 			status: 'no_data',
 			fundId: inputData.fundId,
@@ -370,8 +370,6 @@ async function getFundPeriodReturn(inputData: FundPeriodReturnInput): Promise<To
 		};
 	}
 
-	const returnPercent = roundTwo(((endNav - startNav) / startNav) * 100);
-
 	return {
 		status: 'success',
 		fundId: inputData.fundId,
@@ -379,9 +377,9 @@ async function getFundPeriodReturn(inputData: FundPeriodReturnInput): Promise<To
 		endDateRequested: inputData.endDate,
 		startDateUsed: startPoint.date,
 		endDateUsed: endPoint.date,
-		startNav: formatMoney(startNav),
-		endNav: formatMoney(endNav),
-		returnPercent: formatMoney(returnPercent),
+		startNav: centsToDecimal(startNavCents),
+		endNav: centsToDecimal(endNavCents),
+		returnPercent: calculatePercentageReturn(startNavCents, endNavCents),
 	};
 }
 
@@ -390,7 +388,7 @@ async function getNearestFundNav(fundId: string, dateValue: string): Promise<{ d
 		`
 			SELECT
 				fn."date",
-				fn.nav
+				ROUND(fn.nav::numeric, 2)::text AS nav
 			FROM fund_nav AS fn
 			WHERE fn.fund_id = $1
 			  AND fn."date" <= $2
@@ -438,9 +436,12 @@ async function getPortfolioRealizedReturn(inputData: PortfolioRealizedReturnInpu
 				hs.fund_name,
 				hs.units,
 				hs.purchase_date,
-				hs.purchase_nav,
+				ROUND(hs.purchase_nav::numeric, 2)::text AS purchase_nav,
 				latest_nav.latest_date,
-				latest_nav.latest_nav
+				ROUND(latest_nav.latest_nav::numeric, 2)::text AS latest_nav,
+				ROUND(hs.units * latest_nav.latest_nav::numeric, 2)::text AS current_value_inr,
+				ROUND(hs.units * hs.purchase_nav::numeric, 2)::text AS cost_basis_inr,
+				ROUND(hs.units * latest_nav.latest_nav::numeric - hs.units * hs.purchase_nav::numeric, 2)::text AS realized_return_inr
 			FROM holdings_scope AS hs
 			LEFT JOIN LATERAL (
 				SELECT
@@ -476,28 +477,25 @@ async function getPortfolioRealizedReturn(inputData: PortfolioRealizedReturnInpu
 			continue;
 		}
 
-		const units = toNumber(row.units, 'units');
-		const purchaseNav = toNumber(row.purchase_nav, 'purchase_nav');
-		const latestNav = toNumber(row.latest_nav, 'latest_nav');
-		const currentValue = roundTwo(units * latestNav);
-		const costBasis = roundTwo(units * purchaseNav);
-		const realizedReturn = roundTwo(currentValue - costBasis);
+		const currentValueCents = decimalToCents(String(row.current_value_inr));
+		const costBasisCents = decimalToCents(String(row.cost_basis_inr));
+		const realizedReturnCents = decimalToCents(String(row.realized_return_inr));
 
-		totalCurrentValueCents += decimalToCents(formatMoney(currentValue));
-		totalCostBasisCents += decimalToCents(formatMoney(costBasis));
+		totalCurrentValueCents += currentValueCents;
+		totalCostBasisCents += costBasisCents;
 
 		positions.push({
 			id: row.id,
 			fund_id: row.fund_id,
 			fund_name: row.fund_name,
-			units: formatQuantity(units),
+			units: formatQuantity(toNumber(row.units, 'units')),
 			purchase_date: row.purchase_date,
-			purchase_nav: formatMoney(purchaseNav),
+			purchase_nav: String(row.purchase_nav),
 			latest_nav_date: row.latest_date,
-			latest_nav: formatMoney(latestNav),
-			current_value_inr: formatMoney(currentValue),
-			cost_basis_inr: formatMoney(costBasis),
-			realized_return_inr: formatMoney(realizedReturn),
+			latest_nav: String(row.latest_nav),
+			current_value_inr: centsToDecimal(currentValueCents),
+			cost_basis_inr: centsToDecimal(costBasisCents),
+			realized_return_inr: centsToDecimal(realizedReturnCents),
 		});
 	}
 
@@ -524,11 +522,16 @@ async function getPortfolioRealizedReturn(inputData: PortfolioRealizedReturnInpu
 }
 
 async function runQuery(text: string, values: string[]): Promise<QueryResult> {
-	const result = await pool.query(text, values);
-	return {
-		rowCount: result.rowCount ?? 0,
-		rows: result.rows as DbRow[],
-	};
+	const client = await pool.connect();
+	try {
+		const result = await client.query(text, values);
+		return {
+			rowCount: result.rowCount ?? 0,
+			rows: result.rows as DbRow[],
+		};
+	} finally {
+		client.release();
+	}
 }
 
 function shouldIncludeTransfers(category?: string, merchant?: string): boolean {
@@ -591,6 +594,21 @@ function toNumber(value: unknown, context: string): number {
 	throw new Error(`${context} must be a finite numeric value.`);
 }
 
+function calculatePercentageReturn(startCents: bigint, endCents: bigint): string {
+	const diff = endCents - startCents;
+	const scaled = diff * 10000n;
+	const quotient = scaled / startCents;
+	const remainder = scaled % startCents;
+	const absRemainder = remainder < 0n ? -remainder : remainder;
+	const roundUp = absRemainder * 2n >= (startCents < 0n ? -startCents : startCents);
+	const adjusted = quotient + (diff < 0n ? (roundUp ? -1n : 0n) : roundUp ? 1n : 0n);
+	const sign = adjusted < 0n ? '-' : '';
+	const absolute = adjusted < 0n ? -adjusted : adjusted;
+	const whole = absolute / 100n;
+	const fraction = (absolute % 100n).toString().padStart(2, '0');
+	return `${sign}${whole.toString()}.${fraction}`;
+}
+
 function decimalToCents(value: string): bigint {
 	const normalized = value.trim();
 	const match = normalized.match(/^(-?)(\d+)(?:\.(\d{1,}))?$/);
@@ -600,8 +618,16 @@ function decimalToCents(value: string): bigint {
 
 	const sign = match[1] === '-' ? -1n : 1n;
 	const whole = BigInt(match[2]);
-	const fraction = BigInt((match[3] ?? '').padEnd(2, '0').slice(0, 2));
-	return sign * (whole * 100n + fraction);
+	const fractionRaw = (match[3] ?? '').padEnd(3, '0');
+	const fraction = BigInt(fractionRaw.slice(0, 2));
+	const remainderDigit = Number(fractionRaw[2]);
+	const roundUp = remainderDigit >= 5;
+	let cents = whole * 100n + fraction;
+	if (roundUp) {
+		cents += 1n;
+	}
+
+	return sign * cents;
 }
 
 function centsToDecimal(value: bigint): string {

@@ -1,18 +1,11 @@
-import { Agent } from '@mastra/core';
-import {
-	pool,
-	mastraTools,
-	queryTransactionsTool,
-	getRecurringSubscriptionsTool,
-	getFundPeriodReturnTool,
-	getPortfolioRealizedReturnTool,
-} from '#src/mastra/tools.ts';
+declare const require: {
+	(moduleName: string): any;
+};
 
-type AgentToolMap = Record<string, unknown>;
+const { Agent } = require('@mastra/core');
+import { mastraTools } from '#src/mastra/tools.ts';
 
-const enabledTools: AgentToolMap = Object.fromEntries(
-	mastraTools.map((tool: { id?: string }) => [tool.id ?? '', tool]),
-);
+const enabledTools = mastraTools;
 
 const taraSystemPrompt = [
 	'Tara is a deterministic, professional-grade personal finance research agent.',
@@ -27,7 +20,6 @@ const taraSystemPrompt = [
 let taraAgent: InstanceType<typeof Agent>;
 
 try {
-	void pool;
 	taraAgent = new Agent({
 		id: 'tara-agent',
 		name: 'Tara',
@@ -42,4 +34,4 @@ try {
 	throw new Error(`Failed to initialize taraAgent: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-export { taraAgent, enabledTools };
+export { taraAgent };
